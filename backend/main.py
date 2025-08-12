@@ -146,7 +146,7 @@ def price_tier_for_offer(o: "FoodyOffer"):
 # --- Public endpoints ---
 
 @app.post("/api/v1/merchant/register_public")
-async def register_public(body: dict):
+async def register_public(request: Request, body: dict | None = None):
     title = (body.get("title") or "").strip()
     phone = (body.get("phone") or "").strip() or None
     if not title: raise HTTPException(400, "title required")
@@ -352,3 +352,9 @@ async def qr_png(code: str):
     buf = _io.BytesIO()
     img.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
+
+
+@app.options("/api/v1/merchant/register_public")
+async def options_register_public():
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=204, content=None)
