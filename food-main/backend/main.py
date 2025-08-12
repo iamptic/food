@@ -1,12 +1,12 @@
 import os, csv, io, uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
-from sqlalchemy import func, text, String, Integer, DateTime, Text, ForeignKey, select
+from sqlalchemy import text, String, Integer, DateTime, Text, ForeignKey, select
 from sqlalchemy.orm import Mapped, mapped_column, declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
@@ -61,19 +61,6 @@ class FoodyOffer(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-class FoodyReservation(Base):
-    __tablename__ = "foody_reservations"
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: "RSV_" + uuid.uuid4().hex[:10])
-    offer_id: Mapped[str] = mapped_column(String, ForeignKey("foody_offers.id"), index=True)
-    restaurant_id: Mapped[str] = mapped_column(String, ForeignKey("foody_restaurants.id"), index=True)
-    code: Mapped[str] = mapped_column(String, unique=True, index=True)
-    status: Mapped[str] = mapped_column(String, default="reserved")
-    qty: Mapped[int] = mapped_column(Integer, default=1)
-    price_cents_effective: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-    redeemed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
 
 # --- App ---
 app = FastAPI(title="Foody Backend")
@@ -97,21 +84,35 @@ async def _auto_migrate(conn):
         "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS qty_total INTEGER",
         "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS qty_left INTEGER",
         "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ",
-        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
-        "CREATE TABLE IF NOT EXISTS foody_reservations (id VARCHAR PRIMARY KEY, offer_id VARCHAR, restaurant_id VARCHAR, code VARCHAR UNIQUE, status VARCHAR, qty INTEGER, price_cents_effective INTEGER, created_at TIMESTAMPTZ, redeemed_at TIMESTAMPTZ, expires_at TIMESTAMPTZ)"
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"
     ]
     for s in stmts:
         try:
             await conn.execute(text(s))
         except Exception:
             pass
+    # backfill required ints to sane defaults
     try:
         await conn.execute(text("UPDATE foody_offers SET qty_total=COALESCE(qty_total,1)"))
         await conn.execute(text("UPDATE foody_offers SET qty_left=COALESCE(qty_left,1)"))
     except Exception:
         pass
-    return
- {"ok": True}
+@app.on_event("startup")
+async def on_startup():
+    if RUN_MIGRATIONS:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            try:
+                await _auto_migrate(conn)
+            except Exception:
+                pass
+            try:
+                await _auto_migrate(conn)
+            except Exception:
+                pass
+
+@app.get("/health")
+async def health(): return {"ok": True}
 
 # --- Helpers ---
 async def _auth_restaurant(db: AsyncSession, restaurant_id: str, api_key: Optional[str]):
@@ -122,29 +123,21 @@ async def _auth_restaurant(db: AsyncSession, restaurant_id: str, api_key: Option
     if not row or row.api_key != api_key: raise HTTPException(401, "Invalid X-Foody-Key")
 
 def _offer_dict(o: FoodyOffer):
-    tier, eff = price_tier_for_offer(o)
-    tl = max(0, int((o.expires_at - now_utc()).total_seconds()//60))
-    return {"id": o.id, "restaurant_id": o.restaurant_id, "title": o.title, "description": o.description,
-            "price_cents": o.price_cents, "original_price_cents": o.original_price_cents,
-            "price_cents_effective": eff, "tier": tier, "qty_total": o.qty_total, "qty_left": o.qty_left,
-            "expires_at": o.expires_at.isoformat(), "time_left_min": tl,
-            "archived_at": o.archived_at.isoformat() if o.archived_at else None, "created_at": o.created_at.isoformat()}
-
-# --- Tiered discounts ---
-def price_tier_for_offer(o: "FoodyOffer"):
-    if not o.original_price_cents or o.original_price_cents <= 0:
-        return ("base", o.price_cents)
-    now = now_utc()
-    minutes = int((o.expires_at - now).total_seconds() // 60)
-    if minutes <= 30: disc = 0.70; label = "-70%"
-    elif minutes <= 60: disc = 0.50; label = "-50%"
-    elif minutes <= 120: disc = 0.30; label = "-30%"
-    else: return ("base", o.price_cents if o.price_cents else int(o.original_price_cents))
-    eff = int(round(o.original_price_cents * (1.0 - disc)))
-    return (label, eff)
+    return {
+        "id": o.id,
+        "restaurant_id": o.restaurant_id,
+        "title": o.title,
+        "description": o.description,
+        "price_cents": o.price_cents,
+        "original_price_cents": o.original_price_cents,
+        "qty_total": o.qty_total,
+        "qty_left": o.qty_left,
+        "expires_at": o.expires_at.isoformat(),
+        "archived_at": o.archived_at.isoformat() if o.archived_at else None,
+        "created_at": o.created_at.isoformat(),
+    }
 
 # --- Public endpoints ---
-
 @app.post("/api/v1/merchant/register_public")
 async def register_public(body: dict):
     title = (body.get("title") or "").strip()
@@ -282,73 +275,3 @@ async def merchant_export_csv(request: Request, restaurant_id: str):
             w.writerow([o.id,o.title,o.price_cents,o.original_price_cents or "",o.qty_total,o.qty_left,o.expires_at.isoformat(),o.archived_at.isoformat() if o.archived_at else "",o.created_at.isoformat()])
         buf.seek(0)
         return PlainTextResponse(buf.read(), media_type="text/csv")
-
-@app.post("/api/v1/buyer/reserve")
-async def buyer_reserve(body: dict):
-    offer_id = (body.get("offer_id") or "").strip()
-    if not offer_id: raise HTTPException(400, "offer_id required")
-    async with SessionLocal() as db:
-        o = await db.get(FoodyOffer, offer_id)
-        if not o or o.archived_at is not None: raise HTTPException(404, "offer not found")
-        if o.qty_left <= 0 or o.expires_at <= now_utc(): raise HTTPException(400, "offer not available")
-        tier, eff = price_tier_for_offer(o)
-        o.qty_left = max(0, o.qty_left - 1)
-        code_val = "QR_" + uuid.uuid4().hex[:10].upper()
-        rsv = FoodyReservation(offer_id=o.id, restaurant_id=o.restaurant_id, code=code_val, qty=1,
-                               price_cents_effective=eff, expires_at=min(o.expires_at, now_utc().replace(microsecond=0) + timedelta(minutes=30)))
-        db.add(rsv); await db.commit(); await db.refresh(rsv); await db.refresh(o)
-        return {"reservation_id": rsv.id, "code": rsv.code, "status": rsv.status, "expires_at": rsv.expires_at.isoformat(), "offer": _offer_dict(o)}
-@app.post("/api/v1/merchant/redeem")
-async def merchant_redeem(request: Request, body: dict):
-    restaurant_id = (body.get("restaurant_id") or "").strip()
-    code_val = (body.get("code") or "").strip()
-    key = request.headers.get("X-Foody-Key")
-    async with SessionLocal() as db:
-        await _auth_restaurant(db, restaurant_id, key)
-        stmt = select(FoodyReservation).where(FoodyReservation.code==code_val)
-        rsv = (await db.execute(stmt)).scalar_one_or_none()
-        if not rsv: raise HTTPException(404, "reservation not found")
-        if rsv.restaurant_id != restaurant_id: raise HTTPException(403, "foreign reservation")
-        if rsv.status != "reserved": raise HTTPException(400, "already processed")
-        if rsv.expires_at <= now_utc(): 
-            rsv.status = "expired"; await db.commit(); raise HTTPException(400, "reservation expired")
-        rsv.status = "redeemed"; rsv.redeemed_at = now_utc()
-        await db.commit(); await db.refresh(rsv)
-        return {"ok": True, "reservation_id": rsv.id, "redeemed_at": rsv.redeemed_at.isoformat()}
-@app.get("/api/v1/merchant/reservations")
-async def merchant_reservations(request: Request, restaurant_id: str, limit: int = 100):
-    key = request.headers.get("X-Foody-Key")
-    async with SessionLocal() as db:
-        await _auth_restaurant(db, restaurant_id, key)
-        stmt = select(FoodyReservation).where(FoodyReservation.restaurant_id==restaurant_id).order_by(FoodyReservation.created_at.desc()).limit(limit)
-        rows = (await db.execute(stmt)).scalars().all()
-        def row(x: FoodyReservation):
-            return {"id": x.id, "code": x.code, "status": x.status, "price_cents_effective": x.price_cents_effective,
-                    "created_at": x.created_at.isoformat(), "redeemed_at": x.redeemed_at.isoformat() if x.redeemed_at else None,
-                    "expires_at": x.expires_at.isoformat(), "offer_id": x.offer_id}
-        return [row(x) for x in rows]
-@app.get("/api/v1/merchant/kpi")
-async def merchant_kpi(request: Request, restaurant_id: str):
-    key = request.headers.get("X-Foody-Key")
-    async with SessionLocal() as db:
-        await _auth_restaurant(db, restaurant_id, key)
-        total_reserved = (await db.execute(select(func.count()).select_from(FoodyReservation).where(FoodyReservation.restaurant_id==restaurant_id))).scalar_one()
-        total_redeemed = (await db.execute(select(func.count()).select_from(FoodyReservation).where(FoodyReservation.restaurant_id==restaurant_id, FoodyReservation.status=="redeemed"))).scalar_one()
-        revenue = (await db.execute(select(func.coalesce(func.sum(FoodyReservation.price_cents_effective),0)).where(FoodyReservation.restaurant_id==restaurant_id, FoodyReservation.status=="redeemed"))).scalar_one()
-        stmt = select(FoodyReservation.price_cents_effective, FoodyOffer.original_price_cents).join(FoodyOffer, FoodyOffer.id==FoodyReservation.offer_id).where(FoodyReservation.restaurant_id==restaurant_id, FoodyReservation.status=="redeemed")
-        rows = (await db.execute(stmt)).all()
-        saved = 0
-        for eff, orig in rows:
-            if orig and orig>0 and eff is not None:
-                saved += max(0, orig - eff)
-        rate = (total_redeemed/total_reserved) if total_reserved else 0.0
-        return {"reserved": int(total_reserved), "redeemed": int(total_redeemed), "redemption_rate": round(rate,3), "revenue_cents": int(revenue), "saved_cents": int(saved)}
-
-from fastapi.responses import Response
-@app.get("/api/v1/qr/{code}.png")
-async def qr_png(code: str):
-    import qrcode, io as _io
-    img = qrcode.make(code)
-    buf = _io.BytesIO()
-    img.save(buf, format="PNG")
-    return Response(content=buf.getvalue(), media_type="image/png")

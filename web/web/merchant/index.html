@@ -4,7 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Foody — Merchant (Hotfix)</title>
-  <script src="/config.js"></script>
+  <script src="/config.js">async function redeem(){
+  const code = (document.getElementById('redeemCode').value||'').trim();
+  if(!code){ toast('Введите код'); return }
+  const r = await fetch(API() + '/api/v1/merchant/redeem', {method:'POST', headers:{'Content-Type':'application/json','X-Foody-Key':key()}, body: JSON.stringify({restaurant_id: rid(), code})});
+  if(r.ok){ toast('Погашено'); document.getElementById('redeemCode').value=''; loadKPI(); } else { const t=await r.text(); log('redeem: '+r.status+' '+t); toast('Ошибка погашения') }
+}
+
+async function loadKPI(){
+  try{
+    const r = await fetch(API() + `/api/v1/merchant/kpi?restaurant_id=${rid()}`, {headers:{'X-Foody-Key':key()}});
+    if(!r.ok){ document.getElementById('kpiBox').innerText='Ошибка KPI'; return }
+    const k = await r.json();
+    const rub = n=> (n/100).toFixed(2).replace('.',',');
+    document.getElementById('kpiBox').innerHTML = `
+      Броней: <b>${k.reserved}</b>, Выдач: <b>${k.redeemed}</b>, Конверсия: <b>${(k.redemption_rate*100).toFixed(1)}%</b><br/>
+      Выручка: <b>${rub(k.revenue_cents)} ₽</b> · Экономия гостя: <b>${rub(k.saved_cents)} ₽</b>
+    `;
+  }catch(e){ document.getElementById('kpiBox').innerText='Ошибка KPI'; }
+}
+</script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:0;background:#fafafa;color:#222}
     .wrap{max-width:980px;margin:0 auto;padding:16px}
@@ -60,6 +79,18 @@
     </div>
     <label>Телефон</label><input id="prof_phone">
     <div style="margin-top:8px"><button class="btn primary" id="btnSaveProfile">Сохранить профиль</button></div>
+  </div>
+
+  <div class="card">
+    <h3>Касса: погашение брони</h3>
+    <div class="row"><div><input id="redeemCode" placeholder="Ввести код"></div>
+    <div><button class="btn primary" id="btnRedeem">Погасить</button></div></div>
+    <div class="small">Сканер QR можно подключить как клавиатуру.</div>
+  </div>
+
+  <div class="card">
+    <h3>KPI</h3>
+    <div id="kpiBox" class="small">Загрузка...</div>
   </div>
 
   <div class="card" id="cardOffer" style="display:none">
@@ -164,7 +195,7 @@
       $('cardOffer').style.display='block';
       $('cardGrid').style.display='block';
       $('rid').value = rid();
-      loadOffers();
+      loadOffers(); loadKPI();
       loadProfile();
     }else{
       const d=new Date(); d.setHours(d.getHours()+2); $('expires').value = formatLocalDateTimeInput(d);
@@ -187,7 +218,7 @@
       $('cardProfile').style.display='block';
       $('cardOffer').style.display='block';
       $('cardGrid').style.display='block';
-      toast('Готово!'); loadOffers();
+      toast('Готово!'); loadOffers(); loadKPI();
     }catch(e){ log('JS: '+e); toast('Ошибка сети') }
   }
 
@@ -234,7 +265,7 @@
     };
     if(!body.title || !body.price_cents || !body.expires_at){ toast('Заполни название, цену и срок'); return }
     const r = await fetch(API()+'/api/v1/merchant/offers', {method:'POST', headers:{'Content-Type':'application/json','X-Foody-Key':key()}, body: JSON.stringify(body)});
-    if(r.ok){ toast('Создано'); loadOffers(); } else { const t=await r.text().catch(()=> ''); log('create_offer: '+r.status+' '+t); toast('Не удалось создать') }
+    if(r.ok){ toast('Создано'); loadOffers(); loadKPI(); } else { const t=await r.text().catch(()=> ''); log('create_offer: '+r.status+' '+t); toast('Не удалось создать') }
   }
 
   async function exportCSV(){
