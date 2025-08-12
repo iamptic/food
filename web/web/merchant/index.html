@@ -11,6 +11,22 @@ function toIsoFromInput(val){
   return isNaN(d) ? null : d.toISOString();
 }
 
+
+(function(){
+  const api = (window.foodyApi && window.foodyApi.trim()) || (localStorage.getItem('foody_api')||'').trim() || location.origin.replace(/\/web$/, '');
+  document.getElementById('apiUrl').innerText = api || '(не задан)';
+  const log = (t)=>{ const el = document.getElementById('foodyStatus'); el.textContent = (t||'') + "\n" + el.textContent; };
+  const probe = async ()=>{
+    try{
+      const r = await fetch(api + '/health', {cache:'no-store'});
+      log('GET /health → ' + r.status + ' ' + (r.ok? 'OK':'ERR'));
+      if(!r.ok){ const t = await r.text(); log(t); }
+    }catch(e){ log('Ошибка запроса: ' + e); }
+  };
+  document.getElementById('btnProbe').onclick = probe;
+  document.getElementById('btnClear').onclick = ()=>{ localStorage.removeItem('foody_restaurant'); localStorage.removeItem('foody_key'); location.reload(); };
+})();
+
 </script>
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:0;background:#fafafa;color:#222}
@@ -28,6 +44,16 @@ td,th{border-bottom:1px solid #eee;padding:8px;text-align:left}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 </style></head><body>
 <div class="wrap">
+<div class="card" id="statusCard">
+  <h3>Статус подключения</h3>
+  <div class="small">API: <span id="apiUrl"></span></div>
+  <div class="row">
+    <div><button class="btn" id="btnProbe">Проверить API</button></div>
+    <div><button class="btn secondary" id="btnClear">Сбросить кэш ЛК</button></div>
+  </div>
+  <pre id="foodyStatus" class="small" style="max-height:120px;overflow:auto;background:#fafafa;border:1px dashed #ddd;padding:8px;border-radius:8px"></pre>
+</div>
+
   <div class="card">
     <h3>Регистрация</h3>
     <label for="name">Название</label>
@@ -116,6 +142,24 @@ async function registerRestaurant(){
   const name=(document.getElementById('name').value||'').trim();
   const phone=(document.getElementById('phone').value||'').trim();
   if(!name){toast('Введите название');return}
+  try{
+    const r = await fetch((window.foodyApi||localStorage.getItem('foody_api')||location.origin.replace(/\/web$/, '')) + '/api/v1/merchant/register_public', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title:name, phone})
+    });
+    if(!r.ok){
+      const txt = await r.text().catch(()=>'');
+      toast('Ошибка регистрации'); const log = document.getElementById('foodyStatus'); if(log){ log.textContent = 'register_public: ' + r.status + ' ' + txt + '
+' + log.textContent; }
+      return;
+    }
+    const data = await r.json();
+    localStorage.setItem('foody_restaurant', JSON.stringify({id:data.restaurant_id, title:name, phone}));
+    localStorage.setItem('foody_key', data.api_key);
+    document.getElementById('rid').value = data.restaurant_id;
+    toast('Готово!'); loadOffers();
+  }catch(e){ const log = document.getElementById('foodyStatus'); if(log){ log.textContent = 'Ошибка JS: ' + e + '
+' + log.textContent; } toast('Ошибка сети'); }
+}
 
   await warmup();
 
@@ -232,6 +276,22 @@ function toIsoFromInput(val){
   const d = new Date(val);
   return isNaN(d) ? null : d.toISOString();
 }
+
+
+(function(){
+  const api = (window.foodyApi && window.foodyApi.trim()) || (localStorage.getItem('foody_api')||'').trim() || location.origin.replace(/\/web$/, '');
+  document.getElementById('apiUrl').innerText = api || '(не задан)';
+  const log = (t)=>{ const el = document.getElementById('foodyStatus'); el.textContent = (t||'') + "\n" + el.textContent; };
+  const probe = async ()=>{
+    try{
+      const r = await fetch(api + '/health', {cache:'no-store'});
+      log('GET /health → ' + r.status + ' ' + (r.ok? 'OK':'ERR'));
+      if(!r.ok){ const t = await r.text(); log(t); }
+    }catch(e){ log('Ошибка запроса: ' + e); }
+  };
+  document.getElementById('btnProbe').onclick = probe;
+  document.getElementById('btnClear').onclick = ()=>{ localStorage.removeItem('foody_restaurant'); localStorage.removeItem('foody_key'); location.reload(); };
+})();
 
 </script>
 </body></html>
