@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Foody — Merchant (Hotfix)</title>
+  <script src="/config.js">async function redeem(){
+  const code = (document.getElementById('redeemCode').value||'').trim();
+  if(!code){ toast('Введите код'); return }
+  const r = await fetch(API() + '/api/v1/merchant/redeem', {method:'POST', headers:{'Content-Type':'application/json','X-Foody-Key':key()}, body: JSON.stringify({restaurant_id: rid(), code})});
+  if(r.ok){ toast('Погашено'); document.getElementById('redeemCode').value=''; loadKPI(); } else { const t=await r.text(); log('redeem: '+r.status+' '+t); toast('Ошибка погашения') }
+}
+
+async function loadKPI(){
+  try{
+    const r = await fetch(API() + `/api/v1/merchant/kpi?restaurant_id=${rid()}`, {headers:{'X-Foody-Key':key()}});
+    if(!r.ok){ document.getElementById('kpiBox').innerText='Ошибка KPI'; return }
+    const k = await r.json();
+    const rub = n=> (n/100).toFixed(2).replace('.',',');
+    document.getElementById('kpiBox').innerHTML = `
+      Броней: <b>${k.reserved}</b>, Выдач: <b>${k.redeemed}</b>, Конверсия: <b>${(k.redemption_rate*100).toFixed(1)}%</b><br/>
+      Выручка: <b>${rub(k.revenue_cents)} ₽</b> · Экономия гостя: <b>${rub(k.saved_cents)} ₽</b>
+    `;
+  }catch(e){ document.getElementById('kpiBox').innerText='Ошибка KPI'; }
+}
+</script>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:0;background:#fafafa;color:#222}
+    .wrap{max-width:980px;margin:0 auto;padding:16px}
+    .card{background:#fff;border:1px solid #eee;border-radius:14px;padding:12px;margin:12px 0}
+    label{display:block;margin:6px 0 4px}
+    input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:10px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .btn{padding:10px 12px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer}
+    .btn.primary{background:#2ecc71;border-color:#2ecc71;color:#fff}
+    .btn.secondary{background:#f5f5f5}
+    .small{font-size:12px;color:#666}
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid #eee;padding:8px;text-align:left}
+    .toast{position:fixed;right:12px;bottom:12px;background:#222;color:#fff;padding:10px 12px;border-radius:10px;opacity:.95}
+    .muted{color:#888}
+    .price s{color:#888}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h3>Статус подключения</h3>
+    <div class="row">
+      <div>
+        <label>Адрес API</label>
+        <input id="api" placeholder="https://backend-production-...up.railway.app">
+        <div class="small">Если конфиг не подхватился, укажи здесь вручную → сохранится в браузере.</div>
+      </div>
+      <div style="display:flex;align-items:end;gap:8px">
+        <button class="btn" id="btnSaveApi">Сохранить API</button>
+        <button class="btn" id="btnProbe">Проверить API</button>
+        <button class="btn secondary" id="btnClear">Сбросить ЛК</button>
+      </div>
+    </div>
+    <pre id="log" class="small" style="max-height:140px;overflow:auto;background:#fafafa;border:1px dashed #ddd;padding:8px;border-radius:8px"></pre>
+  </div>
+
+  <div class="card" id="cardRegister">
+    <h3>Регистрация ресторана</h3>
+    <div class="row">
+      <div><label>Название</label><input id="name" placeholder="Пекарня №1"></div>
+      <div><label>Телефон (необязательно)</label><input id="phone" placeholder="+7..."></div>
+    </div>
+    <div style="margin-top:8px"><button class="btn primary" id="btnRegister">Сохранить</button></div>
+    <div class="small muted" style="margin-top:6px">После регистрации останемся в ЛК. RID сохранится в браузере.</div>
+  </div>
+
+  <div class="card" id="cardProfile" style="display:none">
+    <h3>Профиль</h3>
+    <div class="row">
+      <div><label>RID</label><input id="rid" readonly></div>
+      <div><label>Название</label><input id="prof_title"></div>
+    </div>
+    <label>Телефон</label><input id="prof_phone">
+    <div style="margin-top:8px"><button class="btn primary" id="btnSaveProfile">Сохранить профиль</button></div>
+  </div>
+
+  <div class="card">
+    <h3>Касса: погашение брони</h3>
+    <div class="row"><div><input id="redeemCode" placeholder="Ввести код"></div>
+    <div><button class="btn primary" id="btnRedeem">Погасить</button></div></div>
+    <div class="small">Сканер QR можно подключить как клавиатуру.</div>
+  </div>
+
+  <div class="card">
+    <h3>KPI</h3>
+    <div id="kpiBox" class="small">Загрузка...</div>
+  </div>
+
+  <div class="card" id="cardOffer" style="display:none">
+    <h3>Новый оффер</h3>
+    <label>Название</label><input id="title" placeholder="Суп-пюре дня">
+    <label>Описание</label><textarea id="descr" placeholder="Коротко..."></textarea>
+    <div class="row">
+      <div><label>Цена, ₽</label><input id="price" placeholder="199,00"></div>
+      <div><label>Обычная цена, ₽ (необязательно)</label><input id="original_price" placeholder="349,00"></div>
+    </div>
+    <div class="row">
+      <div><label>Количество</label><input id="qty" placeholder="5" value="5"></div>
+      <div><label>Действительно до</label><input id="expires" type="datetime-local"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="btn" id="btnPreset30">−30%</button>
+      <button class="btn" id="btnPreset50">−50%</button>
+      <button class="btn" id="btnPreset70">−70%</button>
+      <span class="small muted"> · </span>
+      <button class="btn" id="btnPlus1h">+1 час</button>
+      <button class="btn" id="btnPlus2h">+2 часа</button>
+    </div>
+    <div style="margin-top:8px"><button class="btn primary" id="btnCreateOffer">Создать оффер</button></div>
+  </div>
+
+  <div class="card" id="cardGrid" style="display:none">
+    <h3>Мои офферы</h3>
+    <div id="grid" class="container"></div>
+    <div style="margin-top:8px"><button class="btn" id="btnExport">Экспорт CSV</button></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---- Safe utils ----
+  function $(id){ return document.getElementById(id) }
+  function toast(t){ const d=document.createElement('div'); d.className='toast'; d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.remove(), 3000) }
+  function log(t){ const el=$('log'); el.textContent = (t||'')+"\n"+el.textContent }
+
+  function formatLocalDateTimeInput(d){
+    const pad=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function r2rub(n){ return (n/100).toFixed(2).replace('.',',') }
+  function numPrice(inp){ return Math.round(parseFloat((inp.value||'0').replace(',','.'))*100)||0 }
+
+  // ---- API base ----
+  function resolveApi(){
+    const fromCfg = (window.foodyApi && String(window.foodyApi).trim()) || '';
+    const fromLS = (localStorage.getItem('foody_api')||'').trim();
+    const fallback = location.origin.replace(/\/web$/, '');
+    return (fromCfg || fromLS || fallback);
+  }
+  function setApi(u){ localStorage.setItem('foody_api', (u||'').trim()); $('api').value = (u||'').trim() }
+  function API(){ return resolveApi() }
+
+  // ---- Async helpers ----
+  async function fetchRetry(url, opts={}, retries=2, backoff=700){
+    try{
+      const r = await fetch(url, opts);
+      if(r.status===502 && retries>0){ await new Promise(res=>setTimeout(res, backoff)); return fetchRetry(url, opts, retries-1, backoff*1.7) }
+      return r;
+    }catch(e){
+      if(retries<=0) throw e;
+      await new Promise(res=>setTimeout(res, backoff));
+      return fetchRetry(url, opts, retries-1, backoff*1.7);
+    }
+  }
+
+  // ---- State ----
+  function rid(){ try{ return JSON.parse(localStorage.getItem('foody_restaurant')||'{}').id || '' }catch(_){ return '' } }
+  function key(){ return localStorage.getItem('foody_key')||'' }
+
+  // ---- UI wiring after DOM ready ----
+  document.addEventListener('DOMContentLoaded', ()=>{
+    // Prefill API
+    $('api').value = resolveApi();
+
+    $('btnSaveApi').onclick = ()=>{ setApi($('api').value); toast('API сохранён') };
+    $('btnProbe').onclick = async ()=>{
+      try{ const r = await fetch(API()+'/health', {cache:'no-store'}); log('GET /health → '+r.status+' '+(r.ok?'OK':'ERR')) }
+      catch(e){ log('Ошибка запроса: '+e) }
+    };
+    $('btnClear').onclick = ()=>{ localStorage.removeItem('foody_restaurant'); localStorage.removeItem('foody_key'); toast('Кэш ЛК очищен'); location.reload() };
+
+    $('btnRegister').onclick = registerRestaurant;
+    $('btnSaveProfile').onclick = saveProfile;
+    $('btnCreateOffer').onclick = createOffer;
+    $('btnExport').onclick = exportCSV;
+
+    $('btnPreset30').onclick = ()=>{ const p=numPrice($('original_price')); if(p>0) $('price').value=(p*0.7/100).toFixed(2).replace('.',',') };
+    $('btnPreset50').onclick = ()=>{ const p=numPrice($('original_price')); if(p>0) $('price').value=(p*0.5/100).toFixed(2).replace('.',',') };
+    $('btnPreset70').onclick = ()=>{ const p=numPrice($('original_price')); if(p>0) $('price').value=(p*0.3/100).toFixed(2).replace('.',',') };
+
+    $('btnPlus1h').onclick = ()=>{ const d=$('expires').value? new Date($('expires').value):new Date(); d.setHours(d.getHours()+1); $('expires').value=formatLocalDateTimeInput(d) };
+    $('btnPlus2h').onclick = ()=>{ const d=$('expires').value? new Date($('expires').value):new Date(); d.setHours(d.getHours()+2); $('expires').value=formatLocalDateTimeInput(d) };
+
+    // Fill profile if exists
+    if(rid()){
+      $('cardRegister').style.display='none';
+      $('cardProfile').style.display='block';
+      $('cardOffer').style.display='block';
+      $('cardGrid').style.display='block';
+      $('rid').value = rid();
+      loadOffers(); loadKPI();
+      loadProfile();
+    }else{
+      const d=new Date(); d.setHours(d.getHours()+2); $('expires').value = formatLocalDateTimeInput(d);
+    }
+  });
+
+  // ---- Actions ----
+  async function registerRestaurant(){
+  // strong warmup to wake cold dyno before preflight
+  for(let i=0;i<3;i++){ try{ await fetch(API()+'/health',{cache:'no-store'}) }catch(_){} }
+
+    const name=($('name').value||'').trim();
+    const phone=($('phone').value||'').trim();
+    if(!name){ toast('Введите название'); return }
+    try{
+      const r = await fetchRetry(API()+'/api/v1/merchant/register_public', {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({title:name, phone})})});
+      if(!r.ok){ const t=await r.text().catch(()=> ''); log('register_public: '+r.status+' '+t); toast('Ошибка регистрации'); return }
+      const data = await r.json();
+      localStorage.setItem('foody_restaurant', JSON.stringify({id:data.restaurant_id, title:name, phone}));
+      localStorage.setItem('foody_key', data.api_key);
+      $('rid').value = data.restaurant_id;
+      $('cardRegister').style.display='none';
+      $('cardProfile').style.display='block';
+      $('cardOffer').style.display='block';
+      $('cardGrid').style.display='block';
+      toast('Готово!'); loadOffers(); loadKPI();
+    }catch(e){ log('JS: '+e); toast('Ошибка сети') }
+  }
+
+  async function loadProfile(){
+    try{
+      const r = await fetch(API()+`/api/v1/merchant/profile?restaurant_id=${rid()}`, {headers:{'X-Foody-Key':key()}});
+      if(!r.ok) return;
+      const p = await r.json();
+      $('prof_title').value = p.title||'';
+      $('prof_phone').value = p.phone||'';
+    }catch(_){}
+  }
+
+  async function saveProfile(){
+    const body={restaurant_id: rid(), title: $('prof_title').value||'', phone: $('prof_phone').value||''};
+    const r = await fetch(API()+'/api/v1/merchant/profile', {method:'POST', headers:{'Content-Type':'application/json','X-Foody-Key':key()}, body: JSON.stringify(body)});
+    if(r.ok){ toast('Профиль сохранён') } else { const t=await r.text().catch(()=> ''); log('profile: '+r.status+' '+t); toast('Ошибка сохранения') }
+  }
+
+  async function loadOffers(){
+    try{
+      const r = await fetch(API()+`/api/v1/merchant/offers?restaurant_id=${rid()}&status=active`, {headers:{'X-Foody-Key':key()}});
+      const arr = r.ok ? await r.json() : [];
+      const html = arr.map(x=>{
+        return `<div class="card"><div><b>${x.title}</b></div>
+        <div class="price">${x.original_price_cents? `<s>${r2rub(x.original_price_cents)} ₽</s> → `:''}<b>${r2rub(x.price_cents)} ₽</b></div>
+        <div class="small">До: ${new Date(x.expires_at).toLocaleString()} · Остаток: ${x.qty_left}/${x.qty_total}</div>
+        </div>`;
+      }).join('');
+      $('grid').innerHTML = html || '<div class="small muted">Пока пусто</div>';
+    }catch(e){ log('offers: '+e) }
+  }
+
+  async function createOffer(){
+    const body = {
+      restaurant_id: rid(),
+      title: ($('title').value||'').trim(),
+      description: ($('descr').value||'').trim(),
+      price_cents: numPrice($('price')),
+      original_price_cents: numPrice($('original_price')) || null,
+      qty_total: parseInt($('qty').value||'1',10),
+      qty_left: parseInt($('qty').value||'1',10),
+      expires_at: $('expires').value ? new Date($('expires').value).toISOString() : null
+    };
+    if(!body.title || !body.price_cents || !body.expires_at){ toast('Заполни название, цену и срок'); return }
+    const r = await fetch(API()+'/api/v1/merchant/offers', {method:'POST', headers:{'Content-Type':'application/json','X-Foody-Key':key()}, body: JSON.stringify(body)});
+    if(r.ok){ toast('Создано'); loadOffers(); loadKPI(); } else { const t=await r.text().catch(()=> ''); log('create_offer: '+r.status+' '+t); toast('Не удалось создать') }
+  }
+
+  async function exportCSV(){
+    try{
+      const r = await fetch(API()+`/api/v1/merchant/export.csv?restaurant_id=${rid()}`, {headers:{'X-Foody-Key':key()}});
+      if(!r.ok){ toast('Ошибка экспорта'); return }
+      const txt = await r.text();
+      const blob = new Blob([txt], {type:'text/csv;charset=utf-8;'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `foody_export_${Date.now()}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){ log('export: '+e); toast('Ошибка экспорта') }
+  }
+})();</script>
+</body>
+</html>

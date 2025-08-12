@@ -1,0 +1,55 @@
+<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foody — Buyer</title>
+<script src="/config.js">async function reserve(offerId){
+  try{
+    const r = await fetch(API + '/api/v1/buyer/reserve', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({offer_id: offerId})});
+    if(!r.ok){ alert('Не удалось забронировать'); return; }
+    const data = await r.json();
+    const html = `<div style="text-align:center">
+      <p>Бронь создана! Покажите этот QR на кассе.</p>
+      <img src="${API + '/api/v1/qr/' + encodeURIComponent(data.code) + '.png'}" style="width:220px;height:220px"/><br/>
+      <div style="font-size:12px;color:#666">Код: ${data.code}</div>
+      <div style="font-size:12px;color:#666">Действительно до: ${new Date(data.expires_at).toLocaleString()}</div>
+    </div>`;
+    const w = window.open('', 'reserve', 'width=320,height=420'); w.document.write(html);
+  }catch(e){ console.error(e); alert('Ошибка резерва'); }
+}
+</script>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:0;background:#fafafa;color:#222}
+.header{position:sticky;top:0;background:#fff;border-bottom:1px solid #eee;padding:10px 12px;display:flex;gap:8px;align-items:center;z-index:3}
+.container{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.card{background:#fff;border:1px solid #eee;border-radius:14px;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.title{font-weight:600;margin:4px 0 8px}
+.price{font-size:18px}
+.small{font-size:12px;color:#666}
+.pulse{outline:3px solid #4caf50; transition:outline .2s;}
+.btn{padding:8px 10px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer}
+.btn.primary{background:#2ecc71;border-color:#2ecc71;color:#fff}
+</style></head><body>
+<div class="header">
+  <button class="btn" onclick="load()">Обновить</button>
+  <div class="small">Покупательская витрина</div>
+</div>
+<div class="container" id="grid"></div>
+<script>
+const API = (window.foodyApi && window.foodyApi.trim())
+         || (localStorage.getItem('foody_api')||'').trim()
+         || location.origin.replace(/\/web$/, '');
+const urlParams = new URLSearchParams(location.search);
+const paramOffer = urlParams.get('offer');
+function r2(n){return (n/100).toFixed(2).replace('.',',')}
+function html(x){return `<div class="card" data-offer-id="${x.id}"><div class="title">${x.title}</div>
+<div class="price">${x.original_price_cents? `<s>${r2(x.original_price_cents)} ₽</s> → ` : ""}<b>${r2(x.price_cents_effective||x.price_cents)} ₽</b> <span class="small">${x.tier||""}</span></div>
+<div class="small">До: ${new Date(x.expires_at).toLocaleString()}</div>
+<div style="margin-top:8px"><button class="btn primary" onclick="reserve('${x.id}')">Забронировать</button></div>
+</div>`}
+async function load(){
+  const r = await fetch(API + '/api/v1/offers'); const data = await r.json();
+  grid.innerHTML = (data||[]).map(html).join('') || '<div class="small">Пока пусто</div>';
+  setTimeout(()=>{ if(paramOffer){ const card=document.querySelector(`[data-offer-id="${paramOffer}"]`); if(card){card.scrollIntoView({behavior:"smooth",block:"center"}); card.classList.add("pulse"); setTimeout(()=>card.classList.remove("pulse"),2000);} }},400);
+}
+async function reserve(id){ alert('Пока демо: бронь создаём на выдаче'); }
+load();
+</script></body></html>
