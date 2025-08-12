@@ -1,5 +1,5 @@
 FROM python:3.11-slim
-ARG CACHE_BUST=20250812_181821
+ARG CACHE_BUST=20250812_18182
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /app/requirements.txt
