@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
-from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, select
+from sqlalchemy import text, String, Integer, DateTime, Text, ForeignKey, select
 from sqlalchemy.orm import Mapped, mapped_column, declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
@@ -62,11 +62,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Lightweight migrations for Postgres (one-off safety) ---
+async def _auto_migrate(conn):
+    # Add "phone" column to foody_restaurants if it does not exist (Postgres)
+    try:
+        await conn.execute(text("ALTER TABLE foody_restaurants ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
+    except Exception as e:
+        # ignore for non-Postgres or if not supported
+        pass
+
 @app.on_event("startup")
 async def on_startup():
     if RUN_MIGRATIONS:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            try:
+                await _auto_migrate(conn)
+            except Exception:
+                pass
 
 @app.get("/health")
 async def health(): return {"ok": True}
