@@ -1,0 +1,2 @@
+<!doctype html><meta charset=utf-8><title>Buyer</title><div id=app>Buyer</div>
+<script>fetch((localStorage.getItem('foody_api')||location.origin.replace(/\/web$/,''))+'/api/v1/offers').then(r=>r.json()).then(d=>{document.getElementById('app').innerHTML='Offers: '+d.length})</script>

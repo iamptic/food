@@ -1,0 +1,1 @@
+const express=require('express');const app=express();const path=require('path');app.use(express.static(path.join(__dirname,'web')));app.get('/health',(q,r)=>r.json({ok:true}));app.get('/',(q,r)=>r.redirect('/web/buyer/'));app.listen(process.env.PORT||8080,()=>console.log('web 8080'));
