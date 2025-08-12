@@ -87,12 +87,48 @@ function _num(v){return parseFloat((v||'').toString().replace(',','.'))||0}
 function r2(n){return (n/100).toFixed(2).replace('.',',')}
 function clearLS(){ localStorage.removeItem('foody_restaurant'); localStorage.removeItem('foody_key'); document.getElementById('rid').value=''; document.getElementById('apikey').value=''; }
 
+// ---- PATCH: warmup + retry ----
+async function fetchRetry(url, opts = {}, retries = 2, backoff = 700) {
+  try {
+    const r = await fetch(url, opts);
+    if (r.status === 502 && retries > 0) {
+      await new Promise(res => setTimeout(res, backoff));
+      return fetchRetry(url, opts, retries - 1, backoff * 1.7);
+    }
+    return r;
+  } catch (e) {
+    if (retries > 0) {
+      await new Promise(res => setTimeout(res, backoff));
+      return fetchRetry(url, opts, retries - 1, backoff * 1.7);
+    }
+    throw e;
+  }
+}
+
+async function warmup() {
+  try { await fetch(API + '/health', { cache: 'no-store' }); } catch {}
+}
+warmup();
+// ---- /PATCH ----
+
 async function registerRestaurant(){
   const name=(document.getElementById('name').value||'').trim();
   const phone=(document.getElementById('phone').value||'').trim();
   if(!name){toast('Введите название');return}
-  let r = await fetch(API+'/api/v1/merchant/register_public',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:name,phone})});
-  if(!r.ok){toast('Ошибка регистрации');return}
+
+  await warmup();
+
+  const r = await fetchRetry(API+'/api/v1/merchant/register_public', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title:name, phone})
+  });
+
+  if(!r.ok){
+    const txt = await r.text().catch(()=> '');
+    toast('Ошибка регистрации' + (txt ? (': ' + txt) : ''));
+    return;
+  }
   const data = await r.json();
   document.getElementById('rid').value = data.restaurant_id;
   document.getElementById('apikey').value = data.api_key;
