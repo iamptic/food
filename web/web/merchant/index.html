@@ -204,14 +204,11 @@ async function loadKPI(){
 
   // ---- Actions ----
   async function registerRestaurant(){
-  // strong warmup to wake cold dyno before preflight
-  for(let i=0;i<3;i++){ try{ await fetch(API()+'/health',{cache:'no-store'}) }catch(_){} }
-
     const name=($('name').value||'').trim();
     const phone=($('phone').value||'').trim();
     if(!name){ toast('Введите название'); return }
     try{
-      const r = await fetchRetry(API()+'/api/v1/merchant/register_public', {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({title:name, phone})})});
+      const r = await fetchRetry(API()+'/api/v1/merchant/register_public', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title:name, phone})});
       if(!r.ok){ const t=await r.text().catch(()=> ''); log('register_public: '+r.status+' '+t); toast('Ошибка регистрации'); return }
       const data = await r.json();
       localStorage.setItem('foody_restaurant', JSON.stringify({id:data.restaurant_id, title:name, phone}));
