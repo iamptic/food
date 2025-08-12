@@ -1,7 +1,17 @@
 <!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Foody — Merchant</title>
-<script src="/config.js"></script>
+<script src="/config.js">
+function formatLocalDateTimeInput(d){
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function toIsoFromInput(val){
+  const d = new Date(val);
+  return isNaN(d) ? null : d.toISOString();
+}
+
+</script>
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:0;background:#fafafa;color:#222}
 .wrap{max-width:900px;margin:0 auto;padding:16px}
@@ -29,16 +39,7 @@ td,th{border-bottom:1px solid #eee;padding:8px;text-align:left}
       <button class="btn secondary" onclick="clearLS()">Сбросить</button>
     </div>
     <div class="small">RID и API ключ сохраняются в браузере.</div>
-    <div class="row">
-      <div>
-        <label>RID</label>
-        <input id="rid" readonly>
-      </div>
-      <div>
-        <label>API Key</label>
-        <input id="apikey" readonly>
-      </div>
-    </div>
+    <div class="row"><div><label>RID</label><input id="rid" readonly></div></div>
   </div>
 
   <div class="card">
@@ -145,11 +146,24 @@ function loadLS(){
 }
 loadLS();
 
+async function saveProfile(){
+  const title=(document.getElementById('name').value||'').trim();
+  const phone=(document.getElementById('phone').value||'').trim();
+  if(!title){toast('Введите название');return}
+  const body={restaurant_id: rid(), title, phone};
+  const r = await fetch(API+'/api/v1/merchant/profile',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Foody-Key':key()},
+    body: JSON.stringify(body)
+  });
+  if(r.ok){toast('Профиль сохранён');} else {toast('Ошибка сохранения профиля');}
+}
+
 document.getElementById('btnPreset30').onclick=()=>{const p=_num(price.value); if(p>0) price.value=(p*0.7).toFixed(2).replace('.',',')}
 document.getElementById('btnPreset50').onclick=()=>{const p=_num(price.value); if(p>0) price.value=(p*0.5).toFixed(2).replace('.',',')}
 document.getElementById('btnPreset70').onclick=()=>{const p=_num(price.value); if(p>0) price.value=(p*0.3).toFixed(2).replace('.',',')}
-document.getElementById('btnPlus1h').onclick=()=>{const d=expires.value?new Date(expires.value):new Date(); d.setHours(d.getHours()+1); expires.value=d.toISOString().slice(0,16)}
-document.getElementById('btnPlus2h').onclick=()=>{const d=expires.value?new Date(expires.value):new Date(); d.setHours(d.getHours()+2); expires.value=d.toISOString().slice(0,16)}
+document.getElementById('btnPlus1h').onclick=()=>{const d=expires.value? new Date(expires.value) : new Date(); d.setHours(d.getHours()+1); expires.value=formatLocalDateTimeInput(d);}; d.setHours(d.getHours()+1); expires.value=d.toISOString().slice(0,16)}
+document.getElementById('btnPlus2h').onclick=()=>{const d=expires.value? new Date(expires.value) : new Date(); d.setHours(d.getHours()+2); expires.value=formatLocalDateTimeInput(d);}; d.setHours(d.getHours()+2); expires.value=d.toISOString().slice(0,16)}
 
 async function createOffer(){
   const body = {
@@ -192,12 +206,32 @@ async function restoreOffer(id){
   if(r.ok){toast('Восстановлено'); loadOffers();} else toast('Ошибка восстановления');
 }
 async function exportCSV(){
-  const r = await fetch(API+`/api/v1/merchant/export.csv?restaurant_id=${rid()}`,{headers:{'X-Foody-Key':key()}});
+  try{
+    const r = await fetch(API+`/api/v1/merchant/export.csv?restaurant_id=${rid()}`,{headers:{'X-Foody-Key':key()}});
+    if(!r.ok){toast('Ошибка экспорта');return}
+    const txt = await r.text();
+    const blob = new Blob([txt], {type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `foody_export_${Date.now()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){ console.error(e); toast('Ошибка экспорта'); }
+}`,{headers:{'X-Foody-Key':key()}});
   if(!r.ok){toast('Ошибка экспорта');return}
   const txt = await r.text();
   const blob = new Blob([txt], {type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `foody_export_${Date.now()}.csv`; a.click();
 }
 loadOffers();
+
+function formatLocalDateTimeInput(d){
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function toIsoFromInput(val){
+  const d = new Date(val);
+  return isNaN(d) ? null : d.toISOString();
+}
+
 </script>
 </body></html>

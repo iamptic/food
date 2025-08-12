@@ -24,6 +24,17 @@ Base = declarative_base()
 
 def now_utc(): return datetime.now(timezone.utc)
 
+def _parse_client_datetime(s: str) -> datetime:
+    # Accept 'YYYY-MM-DDTHH:MM' (naive, local) or full ISO; convert to UTC
+    try:
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        return now_utc()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 # --- Models ---
 class FoodyRestaurant(Base):
     __tablename__ = "foody_restaurants"
@@ -149,6 +160,32 @@ async def buyer_offers(restaurant_id: Optional[str] = None, limit: int = 100):
         rows = (await db.execute(stmt)).scalars().all()
         return [_offer_dict(o) for o in rows]
 
+
+# --- Merchant profile ---
+@app.get("/api/v1/merchant/profile")
+async def merchant_get_profile(request: Request, restaurant_id: str):
+    key = request.headers.get("X-Foody-Key")
+    async with SessionLocal() as db:
+        await _auth_restaurant(db, restaurant_id, key)
+        r = await db.get(FoodyRestaurant, restaurant_id)
+        if not r: raise HTTPException(404, "Restaurant not found")
+        return {"id": r.id, "title": r.title, "phone": r.phone}
+
+@app.post("/api/v1/merchant/profile")
+async def merchant_update_profile(request: Request, body: dict):
+    restaurant_id = body.get("restaurant_id")
+    key = request.headers.get("X-Foody-Key")
+    async with SessionLocal() as db:
+        await _auth_restaurant(db, restaurant_id, key)
+        r = await db.get(FoodyRestaurant, restaurant_id)
+        if not r: raise HTTPException(404, "Restaurant not found")
+        title = (body.get("title") or "").strip()
+        phone = (body.get("phone") or "").strip() or None
+        if title: r.title = title
+        r.phone = phone
+        await db.commit(); await db.refresh(r)
+        return {"id": r.id, "title": r.title, "phone": r.phone}
+
 # --- Merchant endpoints ---
 @app.get("/api/v1/merchant/offers")
 async def merchant_list_offers(request: Request, restaurant_id: str, status: str = Query("active", enum=["active","archived","all"])):
@@ -196,7 +233,7 @@ async def merchant_patch_offer(offer_id: str, request: Request, body: dict):
                 if k.endswith("_cents") or k.startswith("qty"):
                     setattr(o,k,int(body[k]))
                 elif k=="expires_at":
-                    setattr(o,k, datetime.fromisoformat(body[k]).astimezone(timezone.utc))
+                    setattr(o,k, _parse_client_datetime(body[k]))
                 else:
                     setattr(o,k, body[k])
         await db.commit(); await db.refresh(o)
