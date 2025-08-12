@@ -63,19 +63,38 @@ app.add_middleware(
 )
 
 # --- Lightweight migrations for Postgres (one-off safety) ---
-async def _auto_migrate(conn):
-    # Add "phone" column to foody_restaurants if it does not exist (Postgres)
-    try:
-        await conn.execute(text("ALTER TABLE foody_restaurants ADD COLUMN IF NOT EXISTS phone VARCHAR(50)"))
-    except Exception as e:
-        # ignore for non-Postgres or if not supported
-        pass
 
+# --- Lightweight migrations for Postgres (safety for early schemas) ---
+async def _auto_migrate(conn):
+    stmts = [
+        "ALTER TABLE foody_restaurants ADD COLUMN IF NOT EXISTS phone VARCHAR(50)",
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS original_price_cents INTEGER",
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS qty_total INTEGER",
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS qty_left INTEGER",
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ",
+        "ALTER TABLE foody_offers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"
+    ]
+    for s in stmts:
+        try:
+            await conn.execute(text(s))
+        except Exception:
+            pass
+    # backfill required ints to sane defaults
+    try:
+        await conn.execute(text("UPDATE foody_offers SET qty_total=COALESCE(qty_total,1)"))
+        await conn.execute(text("UPDATE foody_offers SET qty_left=COALESCE(qty_left,1)"))
+    except Exception:
+        pass
 @app.on_event("startup")
 async def on_startup():
     if RUN_MIGRATIONS:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            try:
+                await _auto_migrate(conn)
+            except Exception:
+                pass
             try:
                 await _auto_migrate(conn)
             except Exception:
